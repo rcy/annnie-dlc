@@ -1,3 +1,5 @@
+-- foobar
+
 -- Returns a random headline from lite.cnn.com
 function cnn_headline()
   local page = http.get("https://lite.cnn.com")
