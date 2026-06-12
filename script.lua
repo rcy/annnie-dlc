@@ -1,5 +1,5 @@
 -- Returns a random headline from lite.cnn.com
-function random_cnn_headline()
+function cnn()
   local page = http.get("https://lite.cnn.com")
   local headlines = {}
   for a_tag, text in page:gmatch('<a href="/([^"]-)"[^>]->(.-)</a>') do
