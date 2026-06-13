@@ -106,9 +106,9 @@ function trending_today()
   return result
 end
 
--- Shows today's World Cup scores and upcoming World Cup matches.
--- Uses the FIFA API to fetch match data.
--- Returns a single message with all output.
+-- Shows today's World Cup scores only (live/finished matches with scores).
+-- Uses the FIFA API to fetch match data. Returns only matches from today
+-- where HomeTeamScore and AwayTeamScore are both numbers.
 function worldcup_scores()
   local today = os.date("!%Y-%m-%d")
   
@@ -135,8 +135,12 @@ function worldcup_scores()
     end
   end
   
-  -- Try today first
-  local res = http.json("https://api.fifa.com/api/v3/calendar/matches?from=" .. today .. "&to=" .. today .. "&language=en")
+  -- Fetch a broader range to capture today's matches (timezone offsets can cause mismatches)
+  local y, mth = today:match("(%d+)-(%d+)")
+  local last_day = os.date("!%d", os.time({year=y, month=mth+1, day=0}))
+  local month_end = string.format("%s-%s-%s", y, mth, last_day)
+  
+  local res = http.json("https://api.fifa.com/api/v3/calendar/matches?from=" .. today .. "&to=" .. month_end .. "&language=en")
   if res and res.Results then
     for _, m in ipairs(res.Results) do
       local comp = safe_get(m, "CompetitionName", 1, "Description")
@@ -146,92 +150,33 @@ function worldcup_scores()
     end
   end
   
-  -- Try this month
-  local y, mth = today:match("(%d+)-(%d+)")
-  local last_day = os.date("!%d", os.time({year=y, month=mth+1, day=0}))
-  local month_end = string.format("%s-%s-%s", y, mth, last_day)
-  
-  res = http.json("https://api.fifa.com/api/v3/calendar/matches?from=" .. today .. "&to=" .. month_end .. "&language=en")
-  if res and res.Results and #res.Results < 50 then
-    for _, m in ipairs(res.Results) do
-      local comp = safe_get(m, "CompetitionName", 1, "Description")
-      if string.find(comp, "World Cup", 1, true) then
-        add_match(m)
-      end
-    end
-  else
-    -- Fallback: check weekly chunks to get past API 50-result limit
-    local ts = os.time()
-    for off = 0, 60, 7 do
-      local f = os.date("!%Y-%m-%d", ts + off * 86400)
-      local t = os.date("!%Y-%m-%d", ts + (off + 6) * 86400)
-      local r = http.json("https://api.fifa.com/api/v3/calendar/matches?from=" .. f .. "&to=" .. t .. "&language=en")
-      if r and r.Results then
-        for _, m in ipairs(r.Results) do
-          local comp = safe_get(m, "CompetitionName", 1, "Description")
-          if string.find(comp, "World Cup", 1, true) then
-            add_match(m)
-          end
-        end
-      end
-      if #wc_matches >= 20 then break end
-    end
-  end
-  
-  if #wc_matches == 0 then
-    return "No World Cup matches found today or in the near future."
-  end
-  
-  table.sort(wc_matches, function(a, b) return (a.Date or "") < (b.Date or "") end)
-  
-  local today_list, upcoming = {}, {}
+  -- Filter to only today's matches that have live/final scores
+  local matches = {}
   for _, m in ipairs(wc_matches) do
+    local hs = m.HomeTeamScore
+    local as = m.AwayTeamScore
     local d = (m.Date or ""):gsub("T", " "):gsub("Z", "")
     local donly = d:match("^(%S+)")
-    if donly == today then
-      table.insert(today_list, m)
-    else
-      table.insert(upcoming, m)
+    if donly == today and type(hs) == "number" and type(as) == "number" then
+      table.insert(matches, m)
     end
   end
+  
+  if #matches == 0 then
+    return "No live World Cup scores today (" .. today .. ")."
+  end
+  
+  table.sort(matches, function(a, b) return (a.Date or "") < (b.Date or "") end)
   
   local lines = {}
-  
-  if #today_list > 0 then
-    table.insert(lines, "=== Today's World Cup Matches (" .. today .. ") ===")
-    for _, m in ipairs(today_list) do
-      local comp = safe_get(m, "CompetitionName", 1, "Description")
-      local home = safe_get(m, "Home", "TeamName", 1, "Description")
-      local away = safe_get(m, "Away", "TeamName", 1, "Description")
-      local hs, as = m.HomeTeamScore, m.AwayTeamScore
-      local stage = safe_get(m, "StageName", 1, "Description")
-      if type(hs) == "number" and type(as) == "number" then
-        table.insert(lines, comp .. ": " .. home .. " " .. hs .. "-" .. as .. " " .. away .. " (" .. stage .. ")")
-      else
-        table.insert(lines, comp .. ": " .. home .. " vs " .. away .. " (" .. stage .. ")")
-      end
-    end
-  else
-    table.insert(lines, "No World Cup matches today (" .. today .. ").")
-  end
-  
-  if #upcoming > 0 then
-    table.insert(lines, "")
-    table.insert(lines, "=== Upcoming World Cup Matches ===")
-    for _, m in ipairs(upcoming) do
-      local comp = safe_get(m, "CompetitionName", 1, "Description")
-      local home = safe_get(m, "Home", "TeamName", 1, "Description")
-      local away = safe_get(m, "Away", "TeamName", 1, "Description")
-      local stage = safe_get(m, "StageName", 1, "Description")
-      local d = (m.Date or ""):gsub("T", " "):gsub("Z", "")
-      local donly = d:match("^(%S+)")
-      local hs, as = m.HomeTeamScore, m.AwayTeamScore
-      if type(hs) == "number" and type(as) == "number" then
-        table.insert(lines, donly .. " | " .. comp .. ": " .. home .. " " .. hs .. "-" .. as .. " " .. away .. " (" .. stage .. ")")
-      else
-        table.insert(lines, donly .. " | " .. comp .. ": " .. home .. " vs " .. away .. " (" .. stage .. ")")
-      end
-    end
+  for _, m in ipairs(matches) do
+    local comp = safe_get(m, "CompetitionName", 1, "Description")
+    local home = safe_get(m, "Home", "TeamName", 1, "Description")
+    local away = safe_get(m, "Away", "TeamName", 1, "Description")
+    local hs = m.HomeTeamScore
+    local as = m.AwayTeamScore
+    local stage = safe_get(m, "StageName", 1, "Description")
+    lines[#lines + 1] = comp .. ": " .. home .. " " .. hs .. "-" .. as .. " " .. away .. " (" .. stage .. ")"
   end
   
   return table.concat(lines, "\n")
@@ -245,4 +190,25 @@ end
 -- Returns the number 66.
 function foo()
   return 66
+end
+
+-- Compacts worldcup_scores() output into a single line suitable for IRC.
+-- Joins match descriptions with " | " separators.
+-- Strips "FIFA World Cup (tm)" text from the output.
+function print_worldcup_scores()
+  local raw = worldcup_scores()
+  local matches = {}
+  for line in raw:gmatch("[^\n]+") do
+    if #line > 0 then
+      -- Remove "FIFA World Cup (tm)" text from each line
+      local cleaned = line:gsub("FIFA World Cup %(tm%)%s*", "")
+      -- If removal left a leading colon, clean that up too
+      cleaned = cleaned:gsub("^%s*:%s+", "")
+      table.insert(matches, cleaned)
+    end
+  end
+  if #matches == 0 then
+    return raw
+  end
+  return table.concat(matches, " | ")
 end
