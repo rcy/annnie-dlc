@@ -237,7 +237,7 @@ function worldcup_scores()
   return table.concat(lines, "\n")
 end
 
--- Returns the number 111.
+-- Returns the number 10001.
 function the_number()
-  return 111
+  return 10001
 end
