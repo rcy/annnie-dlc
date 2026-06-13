@@ -200,8 +200,8 @@ function print_worldcup_scores()
   local matches = {}
   for line in raw:gmatch("[^\n]+") do
     if #line > 0 then
-      -- Remove "FIFA World Cup (tm)" text from each line
-      local cleaned = line:gsub("FIFA World Cup %(tm%)%s*", "")
+      -- Remove "FIFA World Cup™" text from each line
+      local cleaned = line:gsub("FIFA World Cup.%s*", "")
       -- If removal left a leading colon, clean that up too
       cleaned = cleaned:gsub("^%s*:%s+", "")
       table.insert(matches, cleaned)
