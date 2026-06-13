@@ -241,3 +241,8 @@ end
 function the_number()
   return 99999
 end
+
+-- Returns the number 66.
+function foo()
+  return 66
+end
