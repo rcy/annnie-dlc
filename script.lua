@@ -212,3 +212,12 @@ function print_worldcup_scores()
   end
   return table.concat(matches, " | ")
 end
+
+-- Returns the training data cutoff date for DeepSeek-V4-Flash.
+-- Based on official DeepSeek API docs and model release info.
+function deepseek_v4_flash_cutoff_date()
+  -- DeepSeek-V4 was released on 2026-04-24. Based on benchmarks listed
+  -- in the official docs (e.g., HMMT 2026 Feb) and the model's release date,
+  -- the training data cutoff is approximately early 2026.
+  return "Early 2026 (approximately February 2026)"
+end
