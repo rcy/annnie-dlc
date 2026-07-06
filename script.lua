@@ -1,3 +1,4 @@
+
 -- Returns a random headline from lite.cnn.com
 function random_cnn_headline()
   local page = http.get("https://lite.cnn.com")
@@ -220,4 +221,122 @@ function deepseek_v4_flash_cutoff_date()
   -- in the official docs (e.g., HMMT 2026 Feb) and the model's release date,
   -- the training data cutoff is approximately early 2026.
   return "Early 2026 (approximately February 2026)"
+end
+
+-- Searches the MusicBrainz API with a free text query and returns the MBID
+-- of the first matching resource.
+-- resource_type: e.g. "artist", "release", "recording", "label", "work", "area"
+-- query: free text search string
+-- Returns the MusicBrainz ID (UUID) of the first match, or nil if not found.
+function musicbrainz_search(resource_type, query)
+  local encoded = query
+  encoded = encoded:gsub(" ", "+")
+  encoded = encoded:gsub("([^%w%.%-%_%~%+])", function(c)
+    return string.format("%%%02X", string.byte(c))
+  end)
+
+  local url = "https://beta.musicbrainz.org/ws/2/" .. resource_type .. "/?query=" .. encoded .. "&fmt=json&limit=1"
+  local result = http.json(url)
+
+  if not result then
+    return nil
+  end
+
+  local key = resource_type .. "s"
+  local list = result[key]
+
+  if list and #list > 0 and list[1].id then
+    return list[1].id
+  end
+
+  return nil
+end
+
+-- Checks a Lichess username for pending moves in their current game.
+-- Uses the public Lichess API (no authentication required).
+-- Returns whether it's the user's turn, if they're waiting, or if their game is over.
+-- Note: only reports the current game (users can have multiple correspondence games).
+function lichess_pending(username)
+  local body = http.get("https://lichess.org/api/user/" .. username .. "/current-game")
+  
+  if not body or body == "No ongoing game" or #body < 30 then
+    return "No ongoing games for " .. username .. "."
+  end
+  
+  -- Parse PGN headers
+  local white = body:match('%[White "([^"]-)"%]')
+  local black = body:match('%[Black "([^"]-)"%]')
+  local result = body:match('%[Result "([^"]-)"%]')
+  
+  if not white or not black then
+    return "Could not parse game data for " .. username .. "."
+  end
+  
+  -- Determine user's color
+  local color
+  if white:lower() == username:lower() then
+    color = "white"
+  elseif black:lower() == username:lower() then
+    color = "black"
+  else
+    return username .. " is not playing in that game (watching " .. white .. " vs " .. black .. "?)."
+  end
+  
+  local opponent = (color == "white") and black or white
+  
+  -- If game is finished
+  if result and result ~= "*" then
+    if result == "1-0" then
+      local winner = (color == "white") and "You won!" or (opponent .. " won.")
+      return "Game over: " .. winner .. " (" .. white .. " vs " .. black .. ": " .. result .. ")"
+    elseif result == "0-1" then
+      local winner = (color == "black") and "You won!" or (opponent .. " won.")
+      return "Game over: " .. winner .. " (" .. white .. " vs " .. black .. ": " .. result .. ")"
+    else
+      return "Game over: Draw (" .. white .. " vs " .. black .. ": " .. result .. ")"
+    end
+  end
+  
+  -- Game in progress: determine whose turn from movetext
+  local movetext = body:match("%]%s*\n%s*\n(.+)")
+  if not movetext then
+    movetext = ""
+  end
+  
+  -- Strip comments (braces) and normalize whitespace
+  local clean = movetext:gsub("%b{}", "")
+  clean = clean:gsub("%s+", " ")
+  clean = clean:match("^%s*(.-)%s*$") or ""
+  
+  -- Also strip result at end if embedded in movetext
+  clean = clean:gsub("%s*[01]/[01]%-[01]/[01]%s*$", "")
+  clean = clean:gsub("%s*[01]%-[01]%s*$", "")
+  
+  -- Find the position of the last move number (e.g. "12.")
+  local last_num_pos = nil
+  for pos in clean:gmatch("()%d+%.") do
+    last_num_pos = pos
+  end
+  
+  local is_white_turn
+  if last_num_pos then
+    local after = clean:sub(last_num_pos)
+    -- If there's a "..." after the last move number, black moved → white's turn
+    if after:find("%.%.%.") then
+      is_white_turn = true
+    else
+      is_white_turn = false
+    end
+  else
+    -- No moves yet: white's turn
+    is_white_turn = true
+  end
+  
+  local my_turn = (color == "white" and is_white_turn) or (color == "black" and not is_white_turn)
+  
+  if my_turn then
+    return "Your turn! You are playing as " .. color .. " vs " .. opponent .. "."
+  else
+    return "Waiting for " .. opponent .. " to move. You are playing as " .. color .. "."
+  end
 end
