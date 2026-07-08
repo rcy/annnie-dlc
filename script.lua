@@ -1,4 +1,3 @@
-
 -- Returns a random headline from lite.cnn.com
 function random_cnn_headline()
   local page = http.get("https://lite.cnn.com")
@@ -339,4 +338,59 @@ function lichess_pending(username)
   else
     return "Waiting for " .. opponent .. " to move. You are playing as " .. color .. "."
   end
+end
+
+-- Reports estimated ISS urine tank status based on live crew count + known UPA specs.
+-- Uses the open-notify.org API for real-time ISS crew count, then calculates
+-- estimated urine production, UPA processing capacity, and tank fill level.
+-- Tank level is deterministic per day (seeded from UTC date).
+function iss_piss_tank()
+  local astros = http.json("http://api.open-notify.org/astros.json")
+  if not astros or not astros.people then
+    return "Unable to contact ISS. The piss tank's secrets remain classified."
+  end
+  
+  local iss_crew = 0
+  for _, p in ipairs(astros.people) do
+    if p.craft and p.craft:lower():match("iss") then
+      iss_crew = iss_crew + 1
+    end
+  end
+  
+  if iss_crew == 0 then
+    iss_crew = astros.number or 0
+  end
+  
+  -- Deterministic daily seed so tank level stays consistent all day
+  math.randomseed(tonumber(os.date("!%Y%m%d")))
+  
+  -- ISS Urine Processor Assembly (UPA) known specs:
+  -- Each astronaut: ~1.7 L urine/day | UPA: ~9 kg/day max | Tank: ~43 kg
+  -- Water recovery rate: ~85% (distillate fed to WPA for further processing)
+  local daily_urine_per_person = 1.7
+  local total_daily_urine = iss_crew * daily_urine_per_person
+  local upa_capacity = 9.0
+  local tank_capacity = 43.0
+  local water_recovery = 0.85
+  local recovered_water = total_daily_urine * water_recovery
+  
+  local tank_level = math.random(20, 80)
+  local tank_kg = (tank_level / 100) * tank_capacity
+  
+  local status
+  if tank_level > 75 then
+    status = "URGENT: nearly full, fire up the UPA!"
+  elseif tank_level > 50 then
+    status = "moderate, comfortably half-full"
+  elseif tank_level > 25 then
+    status = "low, plenty of headroom"
+  else
+    status = "very low, crew must be dehydrated"
+  end
+  
+  return string.format(
+    "ISS Urine Tank: %d%% full (%.1f/%.0f kg) — %s | Crew: %d, producing ~%.1f L/day | UPA capacity: %.0f kg/day max, ~%.0f%% recovery (~%.1f L water/day reclaimed)",
+    tank_level, tank_kg, tank_capacity, status,
+    iss_crew, total_daily_urine, upa_capacity, water_recovery * 100, recovered_water
+  )
 end
