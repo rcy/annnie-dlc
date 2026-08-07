@@ -1,3 +1,4 @@
+
 -- Returns a random headline from lite.cnn.com
 function random_cnn_headline()
   local page = http.get("https://lite.cnn.com")
@@ -54,6 +55,52 @@ function recent_recalls()
   end
   
   return table.concat(parts, "; ")
+end
+
+-- Announces the single most recent product recall from the Canada government
+-- recalls website. Returns title, type, date, and a link.
+function recall()
+  local page = http.get("https://recalls-rappels.canada.ca/en")
+  
+  local best_title, best_type, best_date, best_href
+  
+  for item in page:gmatch('<div class="homepage%-recent%-row">(.-)</div></div>') do
+    local href, title = item:match('<a href="(/en/alert%-recall/[^"]-)"[^>]->(.-)</a>')
+    if href then
+      title = title:match("^%s*(.-)%s*$")
+      title = title:gsub('​', '')
+      title = title:gsub('&#039;', "'")
+      title = title:gsub('&amp;', '&')
+      
+      local label = item:match('<span class="label label[^"]-">(.-)</span>')
+      local cat_date = item:match('<span class="ar%-type">(.-)</span>')
+      local category, date
+      if cat_date then
+        local parts = {}
+        for part in cat_date:gmatch('[^|]+') do
+          table.insert(parts, part:match("^%s*(.-)%s*$"))
+        end
+        category = parts[1]
+        date = parts[2]
+      end
+      
+      if not best_title then
+        best_title = title
+        best_type = label or "N/A"
+        best_date = date or "N/A"
+        best_href = href
+      end
+    end
+  end
+  
+  if not best_title then
+    return "No recent recalls found."
+  end
+  
+  return string.format(
+    "Most Recent Canada Recall | %s | Type: %s | Date: %s | https://recalls-rappels.canada.ca%s",
+    best_title, best_type, best_date, best_href
+  )
 end
 
 -- Returns the #1 trending GitHub repository today as one long message.
@@ -393,4 +440,45 @@ function iss_piss_tank()
     tank_level, tank_kg, tank_capacity, status,
     iss_crew, total_daily_urine, upa_capacity, water_recovery * 100, recovered_water
   )
+end
+
+-- Returns the top definition of a term from Urban Dictionary.
+-- Uses the unofficial Urban Dictionary API.
+-- term: the word or phrase to look up (e.g. "yeet", "skibidi toilet")
+function urban_dictionary(term)
+  if not term or #term == 0 then
+    return "Please provide a term to look up."
+  end
+  
+  local encoded = term
+  encoded = encoded:gsub(" ", "+")
+  encoded = encoded:gsub("([^%w%.%-%_%~%+])", function(c)
+    return string.format("%%%02X", string.byte(c))
+  end)
+  
+  local url = "https://api.urbandictionary.com/v0/define?term=" .. encoded
+  local result = http.json(url)
+  
+  if not result or not result.list or #result.list == 0 then
+    return "No definitions found for \"" .. term .. "\"."
+  end
+  
+  local d = result.list[1]
+  
+  -- Strip [bracket] markup from definition and example
+  local def = d.definition:gsub("%[([^%]]-)%]", "%1")
+  def = def:gsub("%s+", " ")
+  def = def:match("^%s*(.-)%s*$")
+  
+  local ex = d.example:gsub("%[([^%]]-)%]", "%1")
+  ex = ex:gsub("%s+", " ")
+  ex = ex:match("^%s*(.-)%s*$")
+  
+  local lines = {
+    d.word .. ": " .. def,
+    "Example: " .. ex,
+    string.format("👍 %d | 👎 %d — by %s", d.thumbs_up or 0, d.thumbs_down or 0, d.author or "unknown")
+  }
+  
+  return table.concat(lines, "\n")
 end
