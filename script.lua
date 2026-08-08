@@ -58,11 +58,11 @@ function recent_recalls()
 end
 
 -- Announces the single most recent product recall from the Canada government
--- recalls website. Returns title, type, date, and a link.
+-- recalls website. Returns title and date only.
 function recall()
   local page = http.get("https://recalls-rappels.canada.ca/en")
   
-  local best_title, best_type, best_date, best_href
+  local best_title, best_date
   
   for item in page:gmatch('<div class="homepage%-recent%-row">(.-)</div></div>') do
     local href, title = item:match('<a href="(/en/alert%-recall/[^"]-)"[^>]->(.-)</a>')
@@ -72,23 +72,19 @@ function recall()
       title = title:gsub('&#039;', "'")
       title = title:gsub('&amp;', '&')
       
-      local label = item:match('<span class="label label[^"]-">(.-)</span>')
       local cat_date = item:match('<span class="ar%-type">(.-)</span>')
-      local category, date
+      local date
       if cat_date then
         local parts = {}
         for part in cat_date:gmatch('[^|]+') do
           table.insert(parts, part:match("^%s*(.-)%s*$"))
         end
-        category = parts[1]
         date = parts[2]
       end
       
       if not best_title then
         best_title = title
-        best_type = label or "N/A"
         best_date = date or "N/A"
-        best_href = href
       end
     end
   end
@@ -97,10 +93,7 @@ function recall()
     return "No recent recalls found."
   end
   
-  return string.format(
-    "Most Recent Canada Recall | %s | Type: %s | Date: %s | https://recalls-rappels.canada.ca%s",
-    best_title, best_type, best_date, best_href
-  )
+  return best_title .. ", " .. best_date
 end
 
 -- Returns the #1 trending GitHub repository today as one long message.
@@ -481,4 +474,78 @@ function urban_dictionary(term)
   }
   
   return table.concat(lines, "\n")
+end
+
+-- Returns live air quality data for a given city.
+-- Uses the free Open-Meteo Geocoding API to resolve the city name to coordinates,
+-- then the free Open-Meteo Air Quality API for current readings.
+-- Returns a formatted one-line summary with European AQI label, US AQI, PM2.5, PM10, NO₂, O₃.
+function air_quality(city)
+  if not city or #city == 0 then
+    return "Please provide a city name."
+  end
+
+  local function url_encode(s)
+    s = s:gsub(" ", "+")
+    s = s:gsub("([^%w%.%-%_%~%+])", function(c)
+      return string.format("%%%02X", string.byte(c))
+    end)
+    return s
+  end
+
+  -- Step 1: Geocode the city
+  local geo = http.json("https://geocoding-api.open-meteo.com/v1/search?name=" .. url_encode(city) .. "&count=1&language=en&format=json")
+  if not geo or not geo.results or #geo.results == 0 then
+    return "City \"" .. city .. "\" not found."
+  end
+
+  local result = geo.results[1]
+  local display_name = result.name .. ", " .. (result.country or result.country_code or "Unknown")
+  local lat, lon = result.latitude, result.longitude
+
+  -- Step 2: Fetch air quality
+  local aq_url = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=" .. lat .. "&longitude=" .. lon .. "&current=european_aqi,us_aqi,pm2_5,pm10,nitrogen_dioxide,ozone"
+  local aq = http.json(aq_url)
+  if not aq or not aq.current then
+    return "Could not fetch air quality data for " .. display_name .. "."
+  end
+
+  local cur = aq.current
+
+  -- European AQI labels
+  local eaqi = cur.european_aqi
+  local e_label
+  if not eaqi then
+    e_label = "N/A"
+  elseif eaqi <= 20 then
+    e_label = "Good"
+  elseif eaqi <= 40 then
+    e_label = "Fair"
+  elseif eaqi <= 60 then
+    e_label = "Moderate"
+  elseif eaqi <= 80 then
+    e_label = "Poor"
+  elseif eaqi <= 100 then
+    e_label = "Very Poor"
+  else
+    e_label = "Extremely Poor"
+  end
+
+  local us_aqi = cur.us_aqi
+
+  local function v(val, unit)
+    if val == nil then return "N/A" end
+    return val .. " " .. unit
+  end
+
+  return string.format(
+    "%s | European AQI: %s (%s) | US AQI: %s | PM2.5: %s | PM10: %s | NO₂: %s | O₃: %s",
+    display_name,
+    tostring(eaqi or "N/A"), e_label,
+    tostring(us_aqi or "N/A"),
+    v(cur.pm2_5, "µg/m³"),
+    v(cur.pm10, "µg/m³"),
+    v(cur.nitrogen_dioxide, "µg/m³"),
+    v(cur.ozone, "µg/m³")
+  )
 end
