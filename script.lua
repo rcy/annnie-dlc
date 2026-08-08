@@ -552,7 +552,8 @@ end
 
 -- Returns air quality as a simple "percent bad" score (0 = pristine, 100 = terrible).
 -- Uses the European AQI capped at 100, with a dead-simple vibe label.
--- city: name of the city (e.g. "London", "Beijing")
+-- city: name of the city (e.g. "London", "Beijing"). Defaults to Canada if no country is specified.
+-- If no results in Canada, falls back to searching the rest of the world.
 function dumb_air_quality(city)
   if not city or #city == 0 then
     return "Give me a city, genius."
@@ -566,35 +567,68 @@ function dumb_air_quality(city)
     return s
   end
 
-  -- Geocode
-  local geo = http.json("https://geocoding-api.open-meteo.com/v1/search?name=" .. url_encode(city) .. "&count=1&language=en&format=json")
-  if not geo or not geo.results or #geo.results == 0 then
-    return "No idea where \"" .. city .. "\" is."
+  local function geocode(search)
+    return http.json("https://geocoding-api.open-meteo.com/v1/search?name=" .. url_encode(search) .. "&count=1&language=en&format=json")
   end
 
-  local r = geo.results[1]
-  local display = r.name .. ", " .. (r.country or r.country_code or "Canada")
+  local function fetch_aq(r)
+    local aq = http.json("https://air-quality-api.open-meteo.com/v1/air-quality?latitude=" .. r.latitude .. "&longitude=" .. r.longitude .. "&current=european_aqi")
+    return aq
+  end
 
-  -- Air quality
-  local aq = http.json("https://air-quality-api.open-meteo.com/v1/air-quality?latitude=" .. r.latitude .. "&longitude=" .. r.longitude .. "&current=european_aqi")
+  local function build_label(eaqi)
+    if eaqi <= 20 then return "Nice."
+    elseif eaqi <= 40 then return "Decent."
+    elseif eaqi <= 60 then return "Meh."
+    elseif eaqi <= 80 then return "Gross."
+    elseif eaqi <= 100 then return "Nasty."
+    else return "Apocalyptic."
+    end
+  end
+
+  local function build_result(r, eaqi)
+    local display = r.name .. ", " .. (r.country or r.country_code or "?")
+    local label = build_label(eaqi)
+    local pct = math.min(eaqi, 100)
+    return display .. ": " .. pct .. "% (" .. label:lower():gsub("%.$", "") .. ")"
+  end
+
+  -- If user specified a country (comma in input), search directly
+  if city:match(",") then
+    local geo = geocode(city)
+    if not geo or not geo.results or #geo.results == 0 then
+      return "No idea where \"" .. city .. "\" is."
+    end
+    local r = geo.results[1]
+    local aq = fetch_aq(r)
+    if not aq or not aq.current or aq.current.european_aqi == nil then
+      return r.name .. ", " .. (r.country or r.country_code or "?") .. ": no data (lucky them?)."
+    end
+    return build_result(r, aq.current.european_aqi)
+  end
+
+  -- No country specified: try Canada first, then fall back to worldwide
+  local geo_ca = geocode(city .. ", Canada")
+  if geo_ca and geo_ca.results and #geo_ca.results > 0 then
+    local r = geo_ca.results[1]
+    local aq = fetch_aq(r)
+    if aq and aq.current and aq.current.european_aqi ~= nil then
+      return build_result(r, aq.current.european_aqi)
+    end
+    return r.name .. ", " .. (r.country or r.country_code or "Canada") .. ": no data (lucky them?)."
+  end
+
+  -- Fallback: search worldwide
+  local geo_world = geocode(city)
+  if not geo_world or not geo_world.results or #geo_world.results == 0 then
+    return "No idea where \"" .. city .. "\" is (tried Canada and everywhere else)."
+  end
+
+  local r = geo_world.results[1]
+  local aq = fetch_aq(r)
   if not aq or not aq.current or aq.current.european_aqi == nil then
-    return display .. ": no data (lucky them?)."
+    return r.name .. ", " .. (r.country or r.country_code or "?") .. ": no data (lucky them?)."
   end
 
-  local eaqi = aq.current.european_aqi
-
-  -- Dead-simple label
-  local label
-  if eaqi <= 20 then label = "Nice."
-  elseif eaqi <= 40 then label = "Decent."
-  elseif eaqi <= 60 then label = "Meh."
-  elseif eaqi <= 80 then label = "Gross."
-  elseif eaqi <= 100 then label = "Nasty."
-  else label = "Apocalyptic."
-  end
-
-  -- Percent bad = European AQI capped at 100
-  local pct = math.min(eaqi, 100)
-
-  return display .. ": " .. pct .. "% (" .. label:lower():gsub("%.$", "") .. ")"
+  return build_result(r, aq.current.european_aqi)
 end
