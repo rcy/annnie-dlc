@@ -549,3 +549,52 @@ function air_quality(city)
     v(cur.ozone, "µg/m³")
   )
 end
+
+-- Returns air quality as a simple "percent bad" score (0 = pristine, 100 = terrible).
+-- Uses the European AQI capped at 100, with a dead-simple vibe label.
+-- city: name of the city (e.g. "London", "Beijing")
+function dumb_air_quality(city)
+  if not city or #city == 0 then
+    return "Give me a city, genius."
+  end
+
+  local function url_encode(s)
+    s = s:gsub(" ", "+")
+    s = s:gsub("([^%w%.%-%_%~%+])", function(c)
+      return string.format("%%%02X", string.byte(c))
+    end)
+    return s
+  end
+
+  -- Geocode
+  local geo = http.json("https://geocoding-api.open-meteo.com/v1/search?name=" .. url_encode(city) .. "&count=1&language=en&format=json")
+  if not geo or not geo.results or #geo.results == 0 then
+    return "No idea where \"" .. city .. "\" is."
+  end
+
+  local r = geo.results[1]
+  local display = r.name .. ", " .. (r.country or r.country_code or "Canada")
+
+  -- Air quality
+  local aq = http.json("https://air-quality-api.open-meteo.com/v1/air-quality?latitude=" .. r.latitude .. "&longitude=" .. r.longitude .. "&current=european_aqi")
+  if not aq or not aq.current or aq.current.european_aqi == nil then
+    return display .. ": no data (lucky them?)."
+  end
+
+  local eaqi = aq.current.european_aqi
+
+  -- Dead-simple label
+  local label
+  if eaqi <= 20 then label = "Nice."
+  elseif eaqi <= 40 then label = "Decent."
+  elseif eaqi <= 60 then label = "Meh."
+  elseif eaqi <= 80 then label = "Gross."
+  elseif eaqi <= 100 then label = "Nasty."
+  else label = "Apocalyptic."
+  end
+
+  -- Percent bad = European AQI capped at 100
+  local pct = math.min(eaqi, 100)
+
+  return display .. ": " .. pct .. "% (" .. label:lower():gsub("%.$", "") .. ")"
+end
