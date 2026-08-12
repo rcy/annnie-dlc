@@ -632,3 +632,38 @@ function dumb_air_quality(city)
 
   return build_result(r, aq.current.european_aqi)
 end
+
+-- Shows live Democratic Wisconsin governor primary election results.
+-- Fetches data from the NBC News Firecracker API and returns each candidate's
+-- last name and vote percentage on a single line, prefixed by the race status
+-- and percent of votes counted.
+function wi_dem_gov_primary()
+  local api_url = "https://www.nbcnews.com/firecracker/api/v2/state-results/2026-primary-elections/wisconsin-governor-results"
+  local data = http.json(api_url)
+
+  if not data or not data.races then
+    return "Unable to fetch Wisconsin primary results."
+  end
+
+  -- Find the Democratic race (electionTypeCode = "D")
+  for _, race in ipairs(data.races) do
+    local summary = race.summary
+    if summary and summary.electionTypeCode == "D" then
+      local status = summary.callStatusText or "No projection"
+      local pct_in = summary.percentInFormatted or "?"
+
+      local parts = {}
+      for _, c in ipairs(summary.candidates) do
+        if c.lastName ~= "Total Write-ins" then
+          table.insert(parts, c.lastName .. " " .. c.formattedPercentVote)
+        end
+      end
+
+      return "WI Dem Gov Primary (" .. status .. ", " .. pct_in .. " in): " .. table.concat(parts, " | ")
+    end
+  end
+
+  return "Democratic primary data not found."
+end
+
+register_command("hong", wi_dem_gov_primary, "Live Dem Wisconsin governor primary results from NBC News")
